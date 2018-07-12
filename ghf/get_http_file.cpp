@@ -33,6 +33,11 @@ GetHttpFile::GetHttpFile(const HttpFileInfo& info, QObject *parent)
 GetHttpFile::~GetHttpFile()
 {
     closeDb();
+    closeFile();
+    if (_pReply){
+        _pReply->deleteLater();
+        _pReply = 0;
+    }
 }
 
 void GetHttpFile::start()
@@ -63,7 +68,7 @@ void GetHttpFile::start()
     }
 
     /*
-     * todo:下载
+     * todo: start download
      */
 
     QNetworkRequest q(url);
@@ -88,16 +93,25 @@ void GetHttpFile::start()
     connect(_pReply, &QNetworkReply::finished, this, &GetHttpFile::finishedSlot);
 
     _pReply = _pQnam->get(q);
+    Q_ASSERT(_pReply);
 }
 
 void GetHttpFile::stop()
 {
     /*
-     * todo:停止下载
+     * todo: stop file downlaod :
+     * two case:
+     * 1._pReply is created
+     * 2._pReply is not created
      */
 
     _isManualCancel = true;
-    _pReply->abort();
+    if (_pReply) {
+        _pReply->abort();
+    } else {
+        closeFile();
+        emit cancelDownload();
+    }
 }
 
 void GetHttpFile::restart()

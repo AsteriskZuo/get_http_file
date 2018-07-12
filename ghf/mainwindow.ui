@@ -81,11 +81,7 @@
      </widget>
     </item>
     <item>
-     <widget class="QProgressBar" name="progressBar">
-      <property name="value">
-       <number>24</number>
-      </property>
-     </widget>
+     <widget class="QProgressBar" name="progressBar"/>
     </item>
     <item>
      <layout class="QHBoxLayout" name="horizontalLayout_2">
@@ -150,22 +146,9 @@
      </layout>
     </item>
    </layout>
-   <zorder>label_url</zorder>
-   <zorder>lineEdit_url</zorder>
-   <zorder>label_download_directory</zorder>
-   <zorder>label_save_file_name</zorder>
-   <zorder>lineEdit_download_directory</zorder>
-   <zorder>lineEdit_save_file_name</zorder>
    <zorder>checkBox_open_file_after_download</zorder>
    <zorder>progressBar</zorder>
-   <zorder>label_tip</zorder>
-   <zorder>textEdit_tip</zorder>
-   <zorder>pushButton_download_file</zorder>
-   <zorder>pushButton_stop_download</zorder>
-   <zorder>pushButton_restart_download</zorder>
    <zorder>line</zorder>
-   <zorder>textEdit_tip</zorder>
-   <zorder>toolButton_select_directory</zorder>
   </widget>
   <widget class="QMenuBar" name="menuBar">
    <property name="geometry">
