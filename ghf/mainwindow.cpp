@@ -61,7 +61,7 @@ void MainWindow::destroyHttpFile()
 void MainWindow::testInit()
 {
     ui->lineEdit_url->setText("http://www.winrar.com.cn/download/winrar-x64-550scp.exe");
-    ui->lineEdit_download_directory->setText("D:\\");
+    ui->lineEdit_download_directory->setText("C:/Users/zuoyu/Desktop/tmp");
     ui->lineEdit_save_file_name->setText("winrar-x64-550scp.exe");
 }
 

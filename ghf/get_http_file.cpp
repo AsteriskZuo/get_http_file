@@ -14,6 +14,7 @@
 #include <QSqlQuery>
 #include <QCryptographicHash>
 #include <QSqlError>
+#include <QDir>
 
 #ifndef QT_FORCE_ASSERTS
 # define QT_FORCE_ASSERTS
@@ -57,8 +58,18 @@ void GetHttpFile::start()
         return;
     }
 
+    if (!QDir(_info.dir).exists()) {
+        emit sendError(4, QObject::tr("dir is not exist."));
+        return;
+    }
+
     if (_info.name.isEmpty()){
         emit sendError(4, QObject::tr("Please input download file name."));
+        return;
+    }
+
+    if (_info.name.contains(' ')){
+        emit sendError(4, QObject::tr("file name contains space char."));
         return;
     }
 
@@ -292,7 +303,7 @@ void GetHttpFile::finishedSlot()
 bool GetHttpFile::openFile()
 {
     if (!_pFile)
-        _pFile = new QFile(_info.dir + _info.name);
+        _pFile = new QFile(_getFullFileName());
     Q_ASSERT(_pFile);
     if (!_pFile->open(QIODevice::Append | QIODevice::WriteOnly)) {
         qWarning() << __FUNCTION__ << "open file is error. file name is" << _info.dir + _info.name;
@@ -571,5 +582,15 @@ QString GetHttpFile::_getId()
     hash.addData(_info.dir.toUtf8());
     hash.addData(_info.name.toUtf8());
     hash.addData(_info.url.toUtf8());
-    return QString(hash.result());
+    return QString(hash.result().toHex());
+}
+
+QString GetHttpFile::_getFullFileName()
+{
+    QString fullFileName;
+    if ("\\" != _info.dir.right(1) && "/" != _info.dir.right(1))
+        fullFileName = _info.dir + "/" + _info.name;
+    else
+        fullFileName = _info.dir + _info.name;
+    return std::move(fullFileName);
 }

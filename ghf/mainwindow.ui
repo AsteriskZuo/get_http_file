@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>654</width>
-    <height>314</height>
+    <height>372</height>
    </rect>
   </property>
   <property name="sizePolicy">
@@ -117,16 +117,16 @@
        </widget>
       </item>
       <item>
-       <widget class="QPushButton" name="pushButton_stop_download">
+       <widget class="QPushButton" name="pushButton_restart_download">
         <property name="text">
-         <string>StopDownload</string>
+         <string>RestartDownload</string>
         </property>
        </widget>
       </item>
       <item>
-       <widget class="QPushButton" name="pushButton_restart_download">
+       <widget class="QPushButton" name="pushButton_stop_download">
         <property name="text">
-         <string>RestartDownload</string>
+         <string>StopDownload</string>
         </property>
        </widget>
       </item>

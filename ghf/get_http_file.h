@@ -55,6 +55,7 @@ private:
     bool _createTabel();//create file info tabel if not exist
     bool _createVersionTabel(const int version);//create tabels on version
     QString _getId();//calculate dir + name + url
+    QString _getFullFileName();//get full file name include dir
 
 signals:
     void sendError(const int level, const QString info);//level: 0.reserve 1.info 2.bug 3.warning 4.error 5.fatal
