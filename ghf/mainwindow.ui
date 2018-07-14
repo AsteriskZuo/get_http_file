@@ -110,23 +110,39 @@
     <item>
      <layout class="QHBoxLayout" name="horizontalLayout">
       <item>
-       <widget class="QPushButton" name="pushButton_download_file">
+       <widget class="QPushButton" name="pushButton_restart_download">
+        <property name="statusTip">
+         <string extracomment="Start or restart the download file. "/>
+        </property>
         <property name="text">
-         <string>DownloadFile</string>
+         <string>start</string>
         </property>
        </widget>
       </item>
       <item>
-       <widget class="QPushButton" name="pushButton_restart_download">
+       <widget class="QPushButton" name="pushButton_download_file">
+        <property name="statusTip">
+         <string extracomment="Continue download file. "/>
+        </property>
         <property name="text">
-         <string>RestartDownload</string>
+         <string>continue</string>
         </property>
        </widget>
       </item>
       <item>
        <widget class="QPushButton" name="pushButton_stop_download">
+        <property name="statusTip">
+         <string extracomment="pauses download file. "/>
+        </property>
         <property name="text">
-         <string>StopDownload</string>
+         <string>stop</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="pushButton_clear">
+        <property name="text">
+         <string>clear</string>
         </property>
        </widget>
       </item>

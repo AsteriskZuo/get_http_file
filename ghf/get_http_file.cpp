@@ -15,10 +15,19 @@
 #include <QCryptographicHash>
 #include <QSqlError>
 #include <QDir>
+#include <QDesktopServices>
+#include <QTimer>
 
 #ifndef QT_FORCE_ASSERTS
 # define QT_FORCE_ASSERTS
 #endif //QT_FORCE_ASSERTS
+
+
+HttpFileInfo::HttpFileInfo()
+    : allSize(0), curSize(0), _state(0)
+{
+    qDebug() << __FUNCTION__ ;
+}
 
 GetHttpFile::GetHttpFile(const HttpFileInfo& info, QObject *parent)
     : QObject(parent)
@@ -26,22 +35,48 @@ GetHttpFile::GetHttpFile(const HttpFileInfo& info, QObject *parent)
     , _pReply(0)
     , _pFile(0)
     , _pDb(0)
+    , _pQnam(0)
     , _isManualCancel(false)
+    , _isContinue(false)
+    , _curSize(0)
+    , _allSize(0)
+    , _isOpenAfterFinished(false)
+    , _pSpeed(0)
+    , _speedUnit(0)
 {
-    init();
+    this->moveToThread(&_thisThread);
+    connect(&_thisThread, &QThread::started, this, &GetHttpFile::threadStartedSlot, Qt::QueuedConnection);
+    connect(&_thisThread, &QThread::finished, this, &GetHttpFile::threadFinishedSlot, Qt::DirectConnection);
+    _thisThread.start();
 }
 
 GetHttpFile::~GetHttpFile()
 {
-    closeDb();
-    closeFile();
-    if (_pReply){
-        _pReply->deleteLater();
-        _pReply = 0;
+    if (_thisThread.isRunning()) {
+        _thisThread.quit();
+        _thisThread.wait();
     }
 }
 
-void GetHttpFile::start()
+void GetHttpFile::updateInfo(const HttpFileInfo &info)
+{
+    _info.url = info.url.trimmed();
+    _info.dir = info.dir.trimmed();
+    _info.name = info.name.trimmed();
+    _id = getId();
+}
+
+bool GetHttpFile::isFinished()
+{
+    if (_info.curSize == _info.allSize && _info.curSize
+            && QFile::exists(getFullFileName())){
+        return true;
+    }
+    return false;
+}
+
+
+void GetHttpFile::innerStart()
 {
     /*
      * todo:check...
@@ -82,6 +117,12 @@ void GetHttpFile::start()
      * todo: start download
      */
 
+    if (!addFileInfo(_info)){
+        emit sendError(4, tr("add file info failed."));
+    }
+
+    startCalculateSpeed();
+
     QNetworkRequest q(url);
 
     if (url.toString().startsWith("https://"))
@@ -99,12 +140,21 @@ void GetHttpFile::start()
     connect(_pQnam, &QNetworkAccessManager::sslErrors, this, &GetHttpFile::sslErrorsSlot);
 #endif
     connect(_pQnam, &QNetworkAccessManager::authenticationRequired, this, &GetHttpFile::authenticationRequiredSlot);
-    connect(_pReply, &QNetworkReply::readyRead, this, &GetHttpFile::readyReadSlot);
-    connect(_pReply, &QNetworkReply::downloadProgress, this, &GetHttpFile::downloadProgressSlot);
-    connect(_pReply, &QNetworkReply::finished, this, &GetHttpFile::finishedSlot);
 
     _pReply = _pQnam->get(q);
     Q_ASSERT(_pReply);
+
+    connect(_pReply, &QNetworkReply::readyRead, this, &GetHttpFile::readyReadSlot);
+    connect(_pReply, &QNetworkReply::channelReadyRead, this, &GetHttpFile::channelReadyReadSlot);
+    connect(_pReply, &QNetworkReply::downloadProgress, this, &GetHttpFile::downloadProgressSlot);
+    connect(_pReply, &QNetworkReply::finished, this, &GetHttpFile::finishedSlot);
+}
+
+void GetHttpFile::start()
+{
+    if (_info.curSize) _isContinue = true;//Breakpoint Continuation
+    else _isContinue = false;
+    innerStart();
 }
 
 void GetHttpFile::stop()
@@ -117,51 +167,53 @@ void GetHttpFile::stop()
      */
 
     _isManualCancel = true;
+
     if (_pReply) {
         _pReply->abort();
     } else {
-        closeFile();
         emit cancelDownload();
     }
 }
 
-void GetHttpFile::restart()
+void GetHttpFile::restart(bool isUserClick)
 {
     /*
      * todo:reset info
      * todo:remove file
      */
 
-    if (QFile::exists(_info.dir + _info.name)) {
-        if (!QFile::remove(_info.dir + _info.name)) {
-            emit sendError(4, QObject::tr("An error occurred deleting the file %1.").arg(_dbName));
+    reset();
+    if (isUserClick) _info.actualurl = _info.url;
+
+    if (QFile::exists(getFullFileName())) {
+        if (!QFile::remove(getFullFileName())) {
+            emit sendError(4, QObject::tr("An error occurred deleting the file %1.").arg(getFullFileName()));
             return;
         }
     }
-
-    reset();
 
     /*
      * todo: start download file...
      */
 
-    start();
+    _isContinue = false;//no Breakpoint Continuation
+    innerStart();
 }
 
 void GetHttpFile::init()
 {
-    _pQnam = new QNetworkAccessManager(this);
+    if (!_pQnam)
+        _pQnam = new QNetworkAccessManager(this);
     Q_ASSERT(_pQnam);
 
     _info.url = _info.url.trimmed();
     _info.dir = _info.dir.trimmed();
     _info.name = _info.name.trimmed();
-    _info.actualurl = _info.url;
 
-    _id = _getId();
+    _id = getId();
 
     QString tmpdir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
-    _dbName = tmpdir + QApplication::instance()->applicationName();
+    _dbName = tmpdir + "/" + QApplication::instance()->applicationName();
 
     if (!openDb()) {
         emit sendError(4, QObject::tr("Open db file %1 is error.").arg(_dbName));
@@ -172,7 +224,7 @@ void GetHttpFile::init()
     QString oldActualUrl = _info.actualurl;
     QString oldMd5 = _info.md5;
     QString oldLastModify = _info.lastModify;
-    if (!getFileInfoById(_id, _info)) {
+    if (getFileInfoById(_id, _info)) {
         if (oldUrl != _info.url) {
             _info.curSize = 0;
         } else if (oldActualUrl != _info.actualurl) {
@@ -187,10 +239,20 @@ void GetHttpFile::init()
     }
 }
 
+void GetHttpFile::uninit()
+{
+    closeDb();
+    closeFile();
+    if (_pReply){
+        qCritical() << __FUNCTION__ << "Please first stop download file.";
+        _pReply->deleteLater();
+        _pReply = 0;
+    }
+}
+
 void GetHttpFile::reset()
 {
     _info.reset();
-    _isManualCancel = false;
 }
 
 
@@ -199,12 +261,20 @@ void GetHttpFile::readyReadSlot()
     QByteArray&& content = _pReply->readAll();
     int&& size = _pFile->write(content);
     if (-1 == size){
-        emit sendError(4, tr("write file is error. size is %1").arg(size));
+        emit sendError(5, tr("write file is error. size is %1").arg(size));
         _pReply->abort();
         return;
     }
     Q_ASSERT(size == content.size());//test
+
+    if (!_info.curSize && !_isContinue){
+        setFileInfoFromSvr();
+    }
+
     _info.curSize += size;
+    _speedUnit += size;
+
+    emit downloadProgress(_info.curSize, _info.allSize);
 }
 
 void GetHttpFile::authenticationRequiredSlot(QNetworkReply *reply, QAuthenticator *authenticator)
@@ -243,16 +313,26 @@ void GetHttpFile::downloadProgressSlot(qint64 bytesReceived, qint64 bytesTotal)
              << "bytesTotal:" << bytesTotal
              << "curSize:" << _info.curSize
              << "allSize:" << _info.allSize;
-    emit downloadProgress(_info.curSize, bytesTotal);
+    _curSize = bytesReceived;
+    _allSize = bytesTotal;
+//    emit downloadProgress(_info.curSize, bytesTotal);
 }
 
 void GetHttpFile::finishedSlot()
 {
     closeFile();
+    stopCalculateSpeed();
 
     if (_isManualCancel) {
+        _isManualCancel = false;
+//        setFileInfoFromSvr();
+        if (!updateFileInfo(_info)) {
+            emit sendError(4, tr("update file info failed."));
+        }
+
         _pReply->deleteLater();
         _pReply = 0;
+
         emit cancelDownload();
         return;
     }
@@ -264,22 +344,12 @@ void GetHttpFile::finishedSlot()
             const QUrl redirectedUrl = QUrl(_info.actualurl).resolved(redirectionTarget.toUrl());
             _info.actualurl = redirectedUrl.toString();
             emit sendError(1, tr("Actual url is %1.").arg(_info.actualurl));
-            restart();
+            restart(false);
             return;
         }
 
-        QByteArray allSize = _pReply->rawHeader("Content-Length");
-        if (!allSize.isEmpty()) {
-            _info.allSize = allSize.toULongLong();
-        }
-        QByteArray etag = _pReply->rawHeader("Etag");
-        if (!etag.isEmpty()) {
-            _info.md5 = etag;
-        }
-        QByteArray lastModify = _pReply->rawHeader("Last-Modified");
-        if (!lastModify.isEmpty()) {
-            _info.lastModify = lastModify;
-        }
+//        setFileInfoFromSvr();
+        Q_ASSERT(_info.allSize == _info.curSize);
         if (!updateFileInfo(_info)) {
             emit sendError(4, tr("update file info failed."));
         }
@@ -289,6 +359,7 @@ void GetHttpFile::finishedSlot()
 
         emit finished();
 
+        openDownloadFile();
     } else {
         QString errString = _pReply->errorString();
 
@@ -299,14 +370,55 @@ void GetHttpFile::finishedSlot()
     }
 }
 
+void GetHttpFile::channelReadyReadSlot(int channel)
+{
+    qDebug() << __FUNCTION__ << channel;
+}
+
+void GetHttpFile::threadStartedSlot()
+{
+    qDebug() << __FUNCTION__;
+    init();
+}
+
+void GetHttpFile::threadFinishedSlot()
+{
+    qDebug() << __FUNCTION__;
+    uninit();
+}
+
+void GetHttpFile::calSpeed()
+{
+    float result;
+    qint64 cu = _speedUnit;
+    int count = 1;//init byte
+    while (1024 < cu){
+        qint64 tu = cu;
+        tu >>= 10;
+        if (1024 < tu){
+            cu = tu;
+            ++count;
+        } else {
+            result = (float)cu / 1024;
+            ++count;
+            break;
+        }
+    }
+    _speedUnit = 0;//reset
+    emit sendSpeed(result, count);
+}
+
 
 bool GetHttpFile::openFile()
 {
     if (!_pFile)
-        _pFile = new QFile(_getFullFileName());
+        _pFile = new QFile();
     Q_ASSERT(_pFile);
+    if (_pFile->isOpen())
+        _pFile->close();
+    _pFile->setFileName(getFullFileName());
     if (!_pFile->open(QIODevice::Append | QIODevice::WriteOnly)) {
-        qWarning() << __FUNCTION__ << "open file is error. file name is" << _info.dir + _info.name;
+        qWarning() << __FUNCTION__ << "open file is error. file name is" << getFullFileName();
         return false;
     }
     return true;
@@ -315,7 +427,8 @@ bool GetHttpFile::openFile()
 void GetHttpFile::closeFile()
 {
     if (_pFile) {
-        _pFile->close();
+        if (_pFile->isOpen())
+            _pFile->close();
         delete _pFile;
         _pFile = 0;
     }
@@ -326,6 +439,8 @@ bool GetHttpFile::_createTabel()
     /*
      * 0：create tabels on 2018.07.12
      */
+
+    if (!_pDb || !_pDb->isOpen()) return false;
 
     int oldVersion = 0;
     int newVersion = 0;
@@ -341,6 +456,7 @@ bool GetHttpFile::_createTabel()
     }
     if (q.first())
     {
+        //Patch created special versions
         QSqlQuery _q(*_pDb);
         sqlstmt = "SELECT version FROM _version ORDER BY update_datetime DESC LIMIT 1";
         _q.prepare(sqlstmt);
@@ -356,7 +472,7 @@ bool GetHttpFile::_createTabel()
             return false;
         }
 
-        int oldVersion = _q.value("version").toInt();
+        oldVersion = _q.value("version").toInt();
         if (oldVersion < newVersion)
         {
             if (!_pDb->transaction())
@@ -367,7 +483,7 @@ bool GetHttpFile::_createTabel()
 
 
             int tmpVersion = oldVersion;
-            while (tmpVersion != newVersion)
+            while (tmpVersion < newVersion)
             {
                 bool _rt = _createVersionTabel(tmpVersion);
                 if (!_rt)
@@ -400,14 +516,15 @@ bool GetHttpFile::_createTabel()
     }
     else
     {
+        //Fully created all versions
         if (!_pDb->transaction())
         {
             qWarning() << __FUNCTION__ << _pDb->lastError();
             return false;
         }
 
-        int tmpVersion = oldVersion;
-        while (tmpVersion != newVersion)
+        int tmpVersion = 0;
+        while (tmpVersion <= newVersion)
         {
             bool _rt = _createVersionTabel(tmpVersion);
             if (!_rt)
@@ -433,9 +550,19 @@ bool GetHttpFile::_createTabel()
 bool GetHttpFile::_createVersionTabel(const int version)
 {
     if (0 == version) {
+        if (!_pDb || !_pDb->isOpen()) return false;
         QSqlQuery q(*_pDb);
-        QString sqlstmt = "CREATE TABLE IF NOT EXISTS http_file_info \
-            ( id VARCHAR (16) NOT NULL PRIMARY KEY, \
+        QString sqlstmt = "CREATE TABLE IF NOT EXISTS _version ( \
+            version INTEGER PRIMARY KEY NOT NULL, update_content VARCHAR (1000) \
+            NOT NULL, update_datetime INTEGER, update_staff VARCHAR (256))";
+        q.prepare(sqlstmt);
+        if (!q.exec()){
+            qWarning() << __FUNCTION__ << q.lastError() << q.lastQuery();
+            return false;
+        }
+
+        sqlstmt = "CREATE TABLE IF NOT EXISTS http_file_info \
+            ( id VARCHAR (32) NOT NULL PRIMARY KEY, \
             dir VARCHAR (64) NOT NULL, \
             name VARCHAR (32) NOT NULL, \
             all_size INTEGER, \
@@ -449,9 +576,18 @@ bool GetHttpFile::_createVersionTabel(const int version)
             qWarning() << __FUNCTION__ << q.lastError() << q.lastQuery();
             return false;
         }
+
+        sqlstmt = "REPLACE INTO _version ( "
+                  "version, update_content, update_datetime, update_staff ) "
+                  "VALUES (0, 'New to create a database tables.', 1531471009, 'zuoyu')";
+        q.prepare(sqlstmt);
+        if (!q.exec()){
+            qWarning() << __FUNCTION__ << q.lastError() << q.lastQuery();
+            return false;
+        }
     }
     else if (1 == version) {
-        //todo:
+        if (!_pDb || !_pDb->isOpen()) return false;
         return false;
     }
     return true;
@@ -459,11 +595,10 @@ bool GetHttpFile::_createVersionTabel(const int version)
 
 bool GetHttpFile::openDb()
 {
-    if (!_pDb){
+    if (!_pDb)
         _pDb = new QSqlDatabase();
-        Q_ASSERT(_pDb);
-        *_pDb = QSqlDatabase::addDatabase("QSQLITE");
-        _pDb->setConnectOptions();
+    if (!_pDb->isOpen()){
+        *_pDb = QSqlDatabase::addDatabase("QSQLITE", "test");
         _pDb->setHostName("127.0.0.1");
         _pDb->setDatabaseName(_dbName);
         _pDb->setUserName(QApplication::instance()->applicationName());
@@ -473,6 +608,7 @@ bool GetHttpFile::openDb()
             return false;
         }
         if (!_createTabel()) {
+            _pDb->close();
             qWarning() << __FUNCTION__ << "Create or open tabel is failed.";
             return false;
         }
@@ -483,7 +619,9 @@ bool GetHttpFile::openDb()
 void GetHttpFile::closeDb()
 {
     if (_pDb) {
-        QSqlDatabase::cloneDatabase(*_pDb, _pDb->connectionName());
+        if (_pDb->isOpen())
+            _pDb->close();
+        QSqlDatabase::removeDatabase(_pDb->connectionName());
         delete _pDb;
         _pDb = 0;
     }
@@ -491,7 +629,7 @@ void GetHttpFile::closeDb()
 
 bool GetHttpFile::addFileInfo(const HttpFileInfo &fileInfo)
 {
-    if (!_pDb) return false;
+    if (!_pDb || !_pDb->isOpen()) return false;
     QSqlQuery q(*_pDb);
     QString sqlstmt = "REPLACE INTO http_file_info (\
         id, dir, name, all_size, cur_size, md5, last_modify, url, actual_url ) \
@@ -515,7 +653,7 @@ bool GetHttpFile::addFileInfo(const HttpFileInfo &fileInfo)
 
 bool GetHttpFile::deleteFileInfoById(const QString &id)
 {
-    if (!_pDb) return false;
+    if (!_pDb || !_pDb->isOpen()) return false;
     QSqlQuery q(*_pDb);
     QString sqlstmt = "DELETE FROM http_file_info WHERE id = ?";
     q.prepare(sqlstmt);
@@ -529,7 +667,7 @@ bool GetHttpFile::deleteFileInfoById(const QString &id)
 
 bool GetHttpFile::updateFileInfo(const HttpFileInfo &fileInfo)
 {
-    if (!_pDb) return false;
+    if (!_pDb || !_pDb->isOpen()) return false;
     QSqlQuery q(*_pDb);
     QString sqlstmt = "UPDATE http_file_info SET dir = ?, \
         name = ?, all_size = ?, cur_size = ?, md5 = ?, last_modify = ?, url = ?, actual_url = ? \
@@ -553,7 +691,7 @@ bool GetHttpFile::updateFileInfo(const HttpFileInfo &fileInfo)
 
 bool GetHttpFile::getFileInfoById(const QString &id, HttpFileInfo &fileInfo)
 {
-    if (!_pDb) return false;
+    if (!_pDb || !_pDb->isOpen()) return false;
     QSqlQuery q(*_pDb);
     QString sqlstmt = "SELECT * FROM http_file_info WHERE id = ?";
     q.prepare(sqlstmt);
@@ -576,7 +714,7 @@ bool GetHttpFile::getFileInfoById(const QString &id, HttpFileInfo &fileInfo)
     return false;
 }
 
-QString GetHttpFile::_getId()
+QString GetHttpFile::getId()
 {
     QCryptographicHash hash(QCryptographicHash::Md5);
     hash.addData(_info.dir.toUtf8());
@@ -585,7 +723,7 @@ QString GetHttpFile::_getId()
     return QString(hash.result().toHex());
 }
 
-QString GetHttpFile::_getFullFileName()
+QString GetHttpFile::getFullFileName()
 {
     QString fullFileName;
     if ("\\" != _info.dir.right(1) && "/" != _info.dir.right(1))
@@ -594,3 +732,46 @@ QString GetHttpFile::_getFullFileName()
         fullFileName = _info.dir + _info.name;
     return std::move(fullFileName);
 }
+
+void GetHttpFile::setFileInfoFromSvr()
+{
+    qDebug() << __FUNCTION__ ;
+    if (!_pReply) return;
+
+    QByteArray allSize = _pReply->rawHeader("Content-Length");
+    if (!allSize.isEmpty()) {
+        _info.allSize = allSize.toULongLong();
+    }
+    QByteArray etag = _pReply->rawHeader("Etag");
+    if (!etag.isEmpty()) {
+        _info.md5 = etag;
+    }
+    QByteArray lastModify = _pReply->rawHeader("Last-Modified");
+    if (!lastModify.isEmpty()) {
+        _info.lastModify = lastModify;
+    }
+}
+
+bool GetHttpFile::openDownloadFile()
+{
+    return QDesktopServices::openUrl(QUrl::fromLocalFile(getFullFileName()));
+}
+
+void GetHttpFile::startCalculateSpeed()
+{
+    if (!_pSpeed){
+        _pSpeed = new QTimer(this);//ownship is this object, so manual delete it.
+        Q_ASSERT(_pSpeed);
+        connect(_pSpeed, &QTimer::timeout, this, &GetHttpFile::calSpeed);
+    }
+    if (!_pSpeed->isActive())
+        _pSpeed->start(1000);
+}
+
+void GetHttpFile::stopCalculateSpeed()
+{
+    if (_pSpeed && _pSpeed->isActive()){
+        _pSpeed->stop();
+    }
+}
+
