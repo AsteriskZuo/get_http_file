@@ -107,7 +107,7 @@ private:
     quint64 _curSize;//from progress
     bool _isContinue;
     bool _isOpenAfterFinished;
-    qint64 _speedUnit;//kilobyte unit
+    qint64 _speedUnit;//transfer file size per second
 };
 
 #endif // GET_HTTP_FILE_H
