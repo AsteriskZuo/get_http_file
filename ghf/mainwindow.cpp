@@ -77,6 +77,7 @@ bool MainWindow::createHttpFile()
         hf.name = ui->lineEdit_save_file_name->text();
 
         _pHttpFile = new GetHttpFile(hf);
+		_pHttpFile->setDuration(100);
         Q_ASSERT(_pHttpFile);
         connect(_pHttpFile, &GetHttpFile::sendError, this, &MainWindow::displayInfo);
         connect(_pHttpFile, &GetHttpFile::downloadProgress, this, &MainWindow::downloadProgressSlot);

@@ -43,6 +43,7 @@ GetHttpFile::GetHttpFile(const HttpFileInfo& info, QObject *parent)
     , _isOpenAfterFinished(false)
     , _pSpeed(0)
     , _speedUnit(0)
+	, _speedDuration(1000)
 {
     this->moveToThread(&_thisThread);
     connect(&_thisThread, &QThread::started, this, &GetHttpFile::threadStartedSlot, Qt::QueuedConnection);
@@ -390,7 +391,7 @@ void GetHttpFile::threadFinishedSlot()
 void GetHttpFile::calSpeed()
 {
     float result;
-    qint64 cu = _speedUnit;
+	qint64 cu = (_speedUnit * ((double)1000.0 / _speedDuration));
     int count = 1;//init byte
     while (1024 < cu){
         qint64 tu = cu;
@@ -754,7 +755,11 @@ void GetHttpFile::setFileInfoFromSvr()
 
 bool GetHttpFile::openDownloadFile()
 {
-    return QDesktopServices::openUrl(QUrl::fromLocalFile(getFullFileName()));
+	if (_isOpenAfterFinished)
+	{
+		return QDesktopServices::openUrl(QUrl::fromLocalFile(getFullFileName()));
+	}
+	return true;
 }
 
 void GetHttpFile::startCalculateSpeed()
@@ -765,7 +770,7 @@ void GetHttpFile::startCalculateSpeed()
         connect(_pSpeed, &QTimer::timeout, this, &GetHttpFile::calSpeed);
     }
     if (!_pSpeed->isActive())
-        _pSpeed->start(1000);
+		_pSpeed->start(_speedDuration);
 }
 
 void GetHttpFile::stopCalculateSpeed()

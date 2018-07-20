@@ -42,6 +42,7 @@ public:
     void updateInfo(const HttpFileInfo& info);//update file info before start or restart
     bool isFinished();//Has the file been downloaded or completed?
     inline void setOpen(const bool isOpen){ _isOpenAfterFinished = isOpen; }//When the download is complete, open the file.
+	void setDuration(const int ms){ _speedDuration = ms; }//set downlaod file speed duration, unit is millisecond (0 < ms <= 2000)
 
 private:
     void init();//initialized data
@@ -108,6 +109,7 @@ private:
     bool _isContinue;
     bool _isOpenAfterFinished;
     qint64 _speedUnit;//transfer file size per second
+	int _speedDuration;
 };
 
 #endif // GET_HTTP_FILE_H
