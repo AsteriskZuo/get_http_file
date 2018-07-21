@@ -32,18 +32,19 @@ HttpFileInfo::HttpFileInfo()
 GetHttpFile::GetHttpFile(const HttpFileInfo& info, QObject *parent)
     : QObject(parent)
     , _info(info)
-    , _pReply(0)
-    , _pFile(0)
-    , _pDb(0)
-    , _pQnam(0)
+    , _pReply(nullptr)
+    , _pFile(nullptr)
+    , _pDb(nullptr)
+    , _pQnam(nullptr)
     , _isManualCancel(false)
     , _isContinue(false)
     , _curSize(0)
     , _allSize(0)
     , _isOpenAfterFinished(false)
-    , _pSpeed(0)
+    , _pSpeed(nullptr)
     , _speedUnit(0)
 	, _speedDuration(1000)
+	, _pConnectTimeout(nullptr)
 {
     this->moveToThread(&_thisThread);
     connect(&_thisThread, &QThread::started, this, &GetHttpFile::threadStartedSlot, Qt::QueuedConnection);
@@ -145,6 +146,9 @@ void GetHttpFile::innerStart()
     _pReply = _pQnam->get(q);
     Q_ASSERT(_pReply);
 
+	_pConnectTimeout->setParam(_pReply, 10000);
+	_pConnectTimeout->startTimer();
+
     connect(_pReply, &QNetworkReply::readyRead, this, &GetHttpFile::readyReadSlot);
     connect(_pReply, &QNetworkReply::channelReadyRead, this, &GetHttpFile::channelReadyReadSlot);
     connect(_pReply, &QNetworkReply::downloadProgress, this, &GetHttpFile::downloadProgressSlot);
@@ -172,7 +176,7 @@ void GetHttpFile::stop()
     if (_pReply) {
         _pReply->abort();
     } else {
-        emit cancelDownload();
+        emit cancelDownload(1);
     }
 }
 
@@ -212,6 +216,10 @@ void GetHttpFile::init()
     _info.name = _info.name.trimmed();
 
     _id = getId();
+
+	if (!_pConnectTimeout)
+		_pConnectTimeout = new ConnectTimeout(this);
+	Q_ASSERT(_pConnectTimeout);
 
     QString tmpdir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
     _dbName = tmpdir + "/" + QApplication::instance()->applicationName();
@@ -334,9 +342,22 @@ void GetHttpFile::finishedSlot()
         _pReply->deleteLater();
         _pReply = 0;
 
-        emit cancelDownload();
+        emit cancelDownload(1);
         return;
     }
+
+	if (_pConnectTimeout->isTimeoutCancel()){
+//        setFileInfoFromSvr();
+		if (!updateFileInfo(_info)) {
+			emit sendError(4, tr("update file info failed."));
+		}
+
+		_pReply->deleteLater();
+		_pReply = 0;
+
+		emit cancelDownload(2);
+		return;
+	}
 
     QNetworkReply::NetworkError err = _pReply->error();
     if (QNetworkReply::NoError == err) {
@@ -362,7 +383,11 @@ void GetHttpFile::finishedSlot()
 
         openDownloadFile();
     } else {
-        QString errString = _pReply->errorString();
+		QString errString = _pReply->errorString();
+
+		if (!updateFileInfo(_info)) {
+			emit sendError(4, tr("update file info failed."));
+		}
 
         _pReply->deleteLater();
         _pReply = 0;
@@ -780,3 +805,59 @@ void GetHttpFile::stopCalculateSpeed()
     }
 }
 
+ConnectTimeout::ConnectTimeout(QObject* parent /*= nullptr*/)
+	: QTimer(parent)
+	, _pReply(nullptr)
+	, _ms(3000)
+	, _timeoutCancel(false)
+{
+	connect(this, &QTimer::timeout, this, &ConnectTimeout::stopConnect, Qt::QueuedConnection);
+}
+
+ConnectTimeout::~ConnectTimeout()
+{
+	_stop();
+}
+
+void ConnectTimeout::setParam(QNetworkReply* pReply, const int ms /*= 3000*/)
+{
+	_pReply = pReply;
+	_ms = ms;
+	connect(_pReply, &QNetworkReply::readyRead, this, &ConnectTimeout::readyReadSlot);
+	connect(_pReply, &QNetworkReply::finished, this, &ConnectTimeout::finishedSlot, Qt::DirectConnection);
+}
+
+void ConnectTimeout::startTimer()
+{
+	start(_ms);
+	_timeoutCancel = false;
+}
+
+void ConnectTimeout::_stop()
+{
+	if (isActive())
+		stop();
+}
+
+void ConnectTimeout::stopConnect()
+{
+	if (_pReply){
+		_timeoutCancel = true;
+		_stop();
+		_pReply->abort();
+		_pReply = nullptr;
+	}
+}
+
+void ConnectTimeout::readyReadSlot()
+{
+	if (isActive())
+		start(_ms);
+}
+
+void ConnectTimeout::finishedSlot()
+{
+	if (_pReply){
+		_pReply = nullptr; 
+	}
+}

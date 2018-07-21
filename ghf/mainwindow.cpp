@@ -257,12 +257,12 @@ void MainWindow::finishedSlot()
     displayInfo(1, tr("finish download file..."));
 }
 
-void MainWindow::cancelDownloadSlot()
+void MainWindow::cancelDownloadSlot(int reason)
 {
     ui->pushButton_stop_download->setEnabled(true);
     ui->pushButton_download_file->setEnabled(true);
     ui->pushButton_restart_download->setEnabled(true);
-    displayInfo(1, tr("cancel download file..."));
+    displayInfo(1, tr("cancel download file... %1").arg(reason));
 }
 
 void MainWindow::displaySpeed(const float speednum, const int speedtype)

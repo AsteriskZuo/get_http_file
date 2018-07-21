@@ -43,7 +43,7 @@ private slots:
     void displayInfo(const int level, const QString info);//level: 0.reserve 1.info 2.bug 3.warning 4.error 5.fatal
     void downloadProgressSlot(qint64 bytesReceived, qint64 bytesTotal);
     void finishedSlot();
-    void cancelDownloadSlot();
+    void cancelDownloadSlot(int reason);//reason 0.reserve 1.manual cancel 2.timeout cancel
     void displaySpeed(const float speednum, const int speedtype);//Displays the download speed. speedtype: 1.byte 2.kilobyte(kb) 3.megabyte(mb) 4.gigabyte(gb) 5.
 
 signals:

@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QString>
 #include <QThread>
+#include <QTimer>
 
 class QNetworkAccessManager;
 class QNetworkReply;
@@ -11,7 +12,6 @@ class QFile;
 class QSqlDatabase;
 class QAuthenticator;
 class QSslError;
-class QTimer;
 
 struct HttpFileInfo
 {
@@ -31,6 +31,27 @@ struct HttpFileInfo
         md5.clear();
         lastModify.clear();
     }
+};
+
+class ConnectTimeout : public QTimer
+{
+	Q_OBJECT
+public:
+	ConnectTimeout(QObject* parent = nullptr);
+	~ConnectTimeout();
+	void setParam(QNetworkReply* pReply, const int ms = 3000);
+	void startTimer();
+	bool isTimeoutCancel(){ return _timeoutCancel; }
+private:
+	void _stop();
+private slots:
+	void stopConnect();
+	void readyReadSlot();
+	void finishedSlot();
+private:
+	QNetworkReply* _pReply;
+	int _ms;
+	bool _timeoutCancel;
 };
 
 class GetHttpFile : public QObject
@@ -72,7 +93,7 @@ signals:
     void sendError(const int level, const QString info);//level: 0.reserve 1.info 2.bug 3.warning 4.error 5.fatal
     void downloadProgress(qint64 bytesReceived, qint64 bytesTotal);
     void finished();
-    void cancelDownload();
+    void cancelDownload(int reason);//reason 0.reserve 1.manual cancel 2.timeout cancel
     void sendSpeed(const float speednum, const int speedtype);//Displays the download speed. speedtype: 1.byte 2.kilobyte(kb) 3.megabyte(mb) 4.gigabyte(gb) 5.
 
 public slots:
@@ -100,6 +121,7 @@ private:
     QFile* _pFile;
     QSqlDatabase* _pDb;
     QTimer* _pSpeed;
+	ConnectTimeout* _pConnectTimeout;
 
     QString _dbName;
     bool _isManualCancel;
