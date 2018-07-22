@@ -171,10 +171,9 @@ void GetHttpFile::stop()
      * 2._pReply is not created
      */
 
-    _isManualCancel = true;
-
     if (_pReply) {
-        _pReply->abort();
+		_isManualCancel = true;
+		_pReply->abort();
     } else {
         emit cancelDownload(1);
     }
@@ -383,7 +382,7 @@ void GetHttpFile::finishedSlot()
 
         openDownloadFile();
     } else {
-		QString errString = _pReply->errorString();
+		QString errString = QString::number(_pReply->error()) + _pReply->errorString();
 
 		if (!updateFileInfo(_info)) {
 			emit sendError(4, tr("update file info failed."));
@@ -829,8 +828,8 @@ void ConnectTimeout::setParam(QNetworkReply* pReply, const int ms /*= 3000*/)
 
 void ConnectTimeout::startTimer()
 {
-	start(_ms);
 	_timeoutCancel = false;
+	start(_ms);
 }
 
 void ConnectTimeout::_stop()
@@ -841,9 +840,9 @@ void ConnectTimeout::_stop()
 
 void ConnectTimeout::stopConnect()
 {
+	_timeoutCancel = true;
+	_stop();
 	if (_pReply){
-		_timeoutCancel = true;
-		_stop();
 		_pReply->abort();
 		_pReply = nullptr;
 	}
@@ -857,6 +856,7 @@ void ConnectTimeout::readyReadSlot()
 
 void ConnectTimeout::finishedSlot()
 {
+	_stop();
 	if (_pReply){
 		_pReply = nullptr; 
 	}

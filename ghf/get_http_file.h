@@ -51,7 +51,7 @@ private slots:
 private:
 	QNetworkReply* _pReply;
 	int _ms;
-	bool _timeoutCancel;
+	bool _timeoutCancel;//Whether the timeout has expired
 };
 
 class GetHttpFile : public QObject
