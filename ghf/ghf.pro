@@ -14,9 +14,11 @@ TEMPLATE = app
 
 SOURCES += main.cpp\
         mainwindow.cpp \
-    get_http_file.cpp
+    get_http_file.cpp \
+    common_define.cpp
 
 HEADERS  += mainwindow.h \
-    get_http_file.h
+    get_http_file.h \
+    common_define.h
 
 FORMS    += mainwindow.ui
